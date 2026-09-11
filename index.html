@@ -209,25 +209,51 @@ html, body { margin: 0; height: 100%; background: #0f1218; color: #fff;
 
 /* ------------------------------------------- activar el sensor ---------- */
 
-/* iOS no deja pedir el permiso de movimiento sin un gesto: en vez de
-   esconderlo en el primer toque, se ofrece a la vista. */
-#activar-sensor {
-  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
-  z-index: 11; display: flex; align-items: center; gap: 10px;
-  background: var(--acento); color: var(--tinta); border: 0;
-  border-radius: 999px; padding: 13px 22px;
-  font-family: inherit; font-size: 14.5px; font-weight: 650;
-  box-shadow: var(--sombra); cursor: pointer;
-  animation: respirar 2.6s ease-in-out infinite;
+/* iOS no abre el diálogo de permiso sin un gesto del usuario, así que no se
+   puede pedir solo al cargar. Lo que sí se puede es ponerlo al frente desde
+   el primer segundo, en vez de esconderlo detrás del primer toque. */
+#pedir-sensor {
+  position: fixed; inset: 0; z-index: 25;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(8, 10, 14, .76); backdrop-filter: blur(6px);
 }
-#activar-sensor svg { width: 19px; height: 19px; fill: none;
-                      stroke: currentColor; stroke-width: 1.9;
-                      stroke-linecap: round; stroke-linejoin: round; }
-@keyframes respirar {
-  0%, 100% { transform: translateX(-50%) scale(1); }
-  50%      { transform: translateX(-50%) scale(1.045); }
+.tarjeta-sensor {
+  background: #151a22; border: 1px solid #2b3340; border-radius: 18px;
+  padding: 30px 26px 22px; text-align: center;
+  width: min(340px, 100%); box-shadow: var(--sombra);
 }
-@media (prefers-reduced-motion: reduce) { #activar-sensor { animation: none; } }
+.tarjeta-sensor svg {
+  width: 42px; height: 42px; margin-bottom: 14px;
+  fill: none; stroke: var(--acento); stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.tarjeta-sensor h2 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.01em; }
+.tarjeta-sensor p { margin: 0 0 20px; font-size: 14px; line-height: 1.55; opacity: .75; }
+.tarjeta-sensor .boton-solido {
+  width: 100%; background: var(--acento); color: var(--tinta);
+  padding: 13px 20px; font-size: 15px; border-radius: 12px;
+}
+.enlace {
+  display: block; width: 100%; margin-top: 10px; padding: 8px;
+  background: none; border: 0; color: #fff; opacity: .55;
+  font-family: inherit; font-size: 13.5px; cursor: pointer;
+}
+.enlace:hover { opacity: .85; }
+
+/* ---------------------------------------- cómo moverse (pie de pantalla) -- */
+
+#ayuda-mover {
+  position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%); z-index: 7;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px;
+  max-width: min(560px, calc(100vw - 24px));
+  background: var(--vidrio); border: 1px solid var(--borde);
+  border-radius: 16px; padding: 10px 16px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-size: clamp(11.5px, 3.1vw, 13.5px); line-height: 1.35; text-align: center;
+}
+#ayuda-mover b { font-weight: 650; color: var(--acento); }
+#ayuda-mover span { white-space: nowrap; }
 
 </style>
 <script type="importmap">
@@ -273,10 +299,17 @@ html, body { margin: 0; height: 100%; background: #0f1218; color: #fff;
 <nav id="lista" aria-label="Espacios y objetos"></nav>
 <div id="pista" class="pista"></div>
 
-<button id="activar-sensor" hidden>
-  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M12 18.5h.01"/><path d="M3.5 9.5a5 5 0 0 1 0 5M20.5 9.5a5 5 0 0 1 0 5"/></svg>
-  <span>Mirar moviendo el teléfono</span>
-</button>
+<div id="pedir-sensor" hidden>
+  <div class="tarjeta-sensor" role="dialog" aria-modal="true" aria-labelledby="sensor-titulo">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M12 18.5h.01"/><path d="M3.5 9.5a5 5 0 0 1 0 5M20.5 9.5a5 5 0 0 1 0 5"/></svg>
+    <h2 id="sensor-titulo">Mira moviendo el teléfono</h2>
+    <p>Gira el aparato y la vista gira contigo, como si estuvieras dentro del espacio.</p>
+    <button class="boton-solido" id="btn-activar">Activar</button>
+    <button class="enlace" id="btn-ahora-no">Ahora no</button>
+  </div>
+</div>
+
+<div id="ayuda-mover" hidden></div>
 
 <div id="cargando"><div class="giro"></div><span id="cargando-texto">Cargando…</span></div>
 
@@ -412,6 +445,7 @@ const catalogoIncrustado = window.__CATALOGO;
     catalogo = datos;
     if (!catalogo.espacios || !catalogo.espacios.length) throw new Error('vacío');
     pintarLista();
+    if (esTactil) encenderSensorSolo();     // apenas se abre, no al terminar de cargar
     abrir(catalogo.espacios[0].id);
   })
   .catch(() => {
@@ -485,12 +519,11 @@ function abrir(id) {
     cargando(false);
 
     const t = caja.getSize(new THREE.Vector3());
-    pista(entrada.tipo === 'objeto'
-      ? `Arrastra para girar la pieza · ${(t.x * 100).toFixed(0)} × ${(t.y * 100).toFixed(0)} cm`
-      : (esTactil
-          ? `Toca para activar el sensor · pellizca para avanzar · arrastra para mirar`
-          : `${t.x.toFixed(1)} × ${t.z.toFixed(1)} m · W A S D para caminar · arrastra para mirar`),
-      7000);
+    if (entrada.tipo === 'objeto') {
+      pista(`Arrastra para girar la pieza · ${(t.x * 100).toFixed(0)} × ${(t.y * 100).toFixed(0)} cm`, 6000);
+    } else {
+      pista(`${t.x.toFixed(1)} × ${t.z.toFixed(1)} m`, 4000);
+    }
   }, (ev) => {
     if (ev.total) cargando(true, `Cargando ${entrada.titulo}… ${Math.round(ev.loaded / ev.total * 100)}%`);
   }, (error) => {
@@ -522,10 +555,26 @@ function verDesdeAfuera() {
   orbita.update();
   $('#btn-modo').textContent = 'Entrar al espacio';
   $('#btn-sensor').hidden = true;
-  $('#activar-sensor').hidden = true;
+  ayudaMover();
 }
 
 let poseInicial = null;              // a dónde vuelve el botón de inicio
+
+function ayudaMover() {
+  const caja = $('#ayuda-mover');
+  if (!actual || actual.tipo === 'objeto' || modo !== 'persona') {
+    caja.hidden = true;
+    return;
+  }
+  caja.innerHTML = esTactil
+    ? '<span><b>Pellizca</b> para avanzar</span>' +
+      '<span><b>Arrastra</b> para mirar</span>' +
+      '<span><b>Toca</b> los puntos</span>'
+    : '<span><b>W A S D</b> para caminar</span>' +
+      '<span><b>Arrastra</b> para mirar</span>' +
+      '<span><b>Clic</b> en los puntos</span>';
+  caja.hidden = false;
+}
 
 function entrarAlEspacio() {
   modo = 'persona';
@@ -541,7 +590,7 @@ function entrarAlEspacio() {
   };
   $('#btn-modo').textContent = 'Ver desde afuera';
   $('#btn-sensor').hidden = !esTactil;
-  if (esTactil) encenderSensorSolo();
+  ayudaMover();
   pista(esTactil ? 'Usa las flechas para caminar y arrastra para mirar'
                  : 'W A S D para caminar · arrastra para mirar · Esc para salir', 6000);
 }
@@ -621,7 +670,6 @@ function apagarSensor(motivo) {
 async function alternarSensor() {
   if (sensorActivo) {
     sensorPedido = true;              // lo apagó a propósito: no insistir
-    $('#activar-sensor').hidden = true;
     apagarSensor('Sensor apagado: vuelve a arrastrar para mirar');
     return;
   }
@@ -686,25 +734,24 @@ function encenderSensorSolo() {
   }
 
   // iOS solo abre el diálogo de permiso desde un gesto del usuario: no hay
-  // manera de que salga solo al cargar. Así que en vez de esconder la petición
-  // en el primer toque —donde el visitante no entiende qué le están
-  // preguntando— se muestra un botón que la ofrece.
-  const aviso = $('#activar-sensor');
-  aviso.hidden = false;
+  // manera de que salga solo al cargar. Lo que sí se puede es ponerlo al
+  // frente desde el primer segundo, con la explicación a la vista, en vez de
+  // esconderlo detrás del primer toque —donde nadie entiende qué le preguntan.
+  const dialogo = $('#pedir-sensor');
+  dialogo.hidden = false;
 
-  const pedir = async () => {
-    aviso.hidden = true;
-    document.removeEventListener('pointerdown', alTocar);
+  $('#btn-activar').addEventListener('click', async () => {
+    dialogo.hidden = true;
     sensorPedido = true;
     await alternarSensor();
-    if (!sensorActivo) aviso.hidden = false;     // lo rechazó: queda a mano
-  };
-  const alTocar = () => pedir();
-
-  aviso.addEventListener('click', (e) => { e.stopPropagation(); pedir(); });
-  // cualquier toque en la escena también sirve: el gesto ya está hecho
-  document.addEventListener('pointerdown', alTocar, { once: true });
+  });
+  $('#btn-ahora-no').addEventListener('click', () => {
+    dialogo.hidden = true;
+    sensorPedido = true;               // no insistir: fue una decisión
+    pista('Puedes activarlo luego con el botón del teléfono', 4000);
+  });
 }
+
 
 /* --------------------------------------------------- corte del techo ---- */
 
