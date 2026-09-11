@@ -207,7 +207,27 @@ html, body { margin: 0; height: 100%; background: #0f1218; color: #fff;
   #corte .boton.texto { flex: 0 0 auto; }
 }
 
- }
+/* ------------------------------------------- activar el sensor ---------- */
+
+/* iOS no deja pedir el permiso de movimiento sin un gesto: en vez de
+   esconderlo en el primer toque, se ofrece a la vista. */
+#activar-sensor {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  z-index: 11; display: flex; align-items: center; gap: 10px;
+  background: var(--acento); color: var(--tinta); border: 0;
+  border-radius: 999px; padding: 13px 22px;
+  font-family: inherit; font-size: 14.5px; font-weight: 650;
+  box-shadow: var(--sombra); cursor: pointer;
+  animation: respirar 2.6s ease-in-out infinite;
+}
+#activar-sensor svg { width: 19px; height: 19px; fill: none;
+                      stroke: currentColor; stroke-width: 1.9;
+                      stroke-linecap: round; stroke-linejoin: round; }
+@keyframes respirar {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50%      { transform: translateX(-50%) scale(1.045); }
+}
+@media (prefers-reduced-motion: reduce) { #activar-sensor { animation: none; } }
 
 </style>
 <script type="importmap">
@@ -252,6 +272,11 @@ html, body { margin: 0; height: 100%; background: #0f1218; color: #fff;
 
 <nav id="lista" aria-label="Espacios y objetos"></nav>
 <div id="pista" class="pista"></div>
+
+<button id="activar-sensor" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M12 18.5h.01"/><path d="M3.5 9.5a5 5 0 0 1 0 5M20.5 9.5a5 5 0 0 1 0 5"/></svg>
+  <span>Mirar moviendo el teléfono</span>
+</button>
 
 <div id="cargando"><div class="giro"></div><span id="cargando-texto">Cargando…</span></div>
 
@@ -497,6 +522,7 @@ function verDesdeAfuera() {
   orbita.update();
   $('#btn-modo').textContent = 'Entrar al espacio';
   $('#btn-sensor').hidden = true;
+  $('#activar-sensor').hidden = true;
 }
 
 let poseInicial = null;              // a dónde vuelve el botón de inicio
@@ -595,6 +621,7 @@ function apagarSensor(motivo) {
 async function alternarSensor() {
   if (sensorActivo) {
     sensorPedido = true;              // lo apagó a propósito: no insistir
+    $('#activar-sensor').hidden = true;
     apagarSensor('Sensor apagado: vuelve a arrastrar para mirar');
     return;
   }
@@ -658,12 +685,25 @@ function encenderSensorSolo() {
     return;
   }
 
-  const alPrimerToque = () => {
-    document.removeEventListener('pointerdown', alPrimerToque);
+  // iOS solo abre el diálogo de permiso desde un gesto del usuario: no hay
+  // manera de que salga solo al cargar. Así que en vez de esconder la petición
+  // en el primer toque —donde el visitante no entiende qué le están
+  // preguntando— se muestra un botón que la ofrece.
+  const aviso = $('#activar-sensor');
+  aviso.hidden = false;
+
+  const pedir = async () => {
+    aviso.hidden = true;
+    document.removeEventListener('pointerdown', alTocar);
     sensorPedido = true;
-    alternarSensor();
+    await alternarSensor();
+    if (!sensorActivo) aviso.hidden = false;     // lo rechazó: queda a mano
   };
-  document.addEventListener('pointerdown', alPrimerToque, { once: true });
+  const alTocar = () => pedir();
+
+  aviso.addEventListener('click', (e) => { e.stopPropagation(); pedir(); });
+  // cualquier toque en la escena también sirve: el gesto ya está hecho
+  document.addEventListener('pointerdown', alTocar, { once: true });
 }
 
 /* --------------------------------------------------- corte del techo ---- */
