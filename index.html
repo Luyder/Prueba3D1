@@ -303,7 +303,7 @@ html, body { margin: 0; height: 100%; background: #0f1218; color: #fff;
   <div class="tarjeta-sensor" role="dialog" aria-modal="true" aria-labelledby="sensor-titulo">
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M12 18.5h.01"/><path d="M3.5 9.5a5 5 0 0 1 0 5M20.5 9.5a5 5 0 0 1 0 5"/></svg>
     <h2 id="sensor-titulo">Mira moviendo el teléfono</h2>
-    <p>Gira el aparato y la vista gira contigo, como si estuvieras dentro del espacio.</p>
+    <p id="sensor-texto">Gira el aparato y la vista gira contigo, como si estuvieras dentro del espacio.</p>
     <button class="boton-solido" id="btn-activar">Activar</button>
     <button class="enlace" id="btn-ahora-no">Ahora no</button>
   </div>
@@ -683,6 +683,7 @@ async function alternarSensor() {
   // iOS exige permiso explícito, pedido desde un toque y sobre https.
   if (typeof DOE.requestPermission === 'function') {
     let respuesta;
+    const arranque = performance.now();
     try {
       respuesta = await DOE.requestPermission();
     } catch (e) {
@@ -690,8 +691,12 @@ async function alternarSensor() {
       return;
     }
     if (respuesta !== 'granted') {
-      pista('Permiso denegado. Safari > Ajustes del sitio > Movimiento', 7000);
-      return;
+      // Si contesta en menos de un parpadeo es que no llegó a preguntar: el
+      // permiso está bloqueado en el sistema y recargar no cambia nada. Si se
+      // demoró, fue el visitante quien tocó "No permitir".
+      sinPreguntar = (performance.now() - arranque) < 350;
+      sensorDenegado = true;
+      return;                          // el diálogo explica qué hacer
     }
   }
 
@@ -714,7 +719,12 @@ async function alternarSensor() {
   }, 2000);
 }
 
-$('#btn-sensor').addEventListener('click', alternarSensor);
+$('#btn-sensor').addEventListener('click', () => {
+  // Con el sensor apagado no se pide el permiso a ciegas: se vuelve a abrir el
+  // aviso, que además sabe explicar el caso de la denegación por error.
+  if (sensorActivo) alternarSensor();
+  else mostrarDialogoSensor();
+});
 
 /**
  * El sensor queda encendido por defecto en el teléfono. iOS no permite pedir
@@ -722,6 +732,40 @@ $('#btn-sensor').addEventListener('click', alternarSensor);
  * con el primer toque, que llega de inmediato porque lo primero que uno hace
  * al entrar es tocar la pantalla.
  */
+/* El diálogo del sensor tiene dos caras: la invitación inicial y, si el
+   permiso quedó denegado, la explicación de cómo recuperarlo. */
+
+let sensorDenegado = false, sinPreguntar = false;
+
+function mostrarDialogoSensor() {
+  const dialogo = $('#pedir-sensor');
+  if (sensorDenegado && sinPreguntar) {
+    // Ni siquiera apareció el aviso del sistema: está apagado en Ajustes, y
+    // desde la página no hay nada que hacer. Recargar no sirve de nada.
+    $('#sensor-titulo').textContent = 'Safari tiene el sensor bloqueado';
+    $('#sensor-texto').innerHTML =
+      'No llegó a preguntarte. Actívalo en <b>Ajustes › Safari › ' +
+      'Movimiento y orientación</b> y vuelve a abrir esta página.';
+    $('#btn-activar').textContent = 'Ya lo activé, recargar';
+    $('#btn-ahora-no').textContent = 'Seguir sin el sensor';
+  } else if (sensorDenegado) {
+    $('#sensor-titulo').textContent = 'Quedó en "No permitir"';
+    $('#sensor-texto').innerHTML =
+      'Safari recuerda esa respuesta. Al recargar vuelve a preguntarte; ' +
+      'si no aparece, actívalo en <b>Ajustes › Safari › Movimiento y ' +
+      'orientación</b>.';
+    $('#btn-activar').textContent = 'Recargar y volver a pedirlo';
+    $('#btn-ahora-no').textContent = 'Seguir sin el sensor';
+  } else {
+    $('#sensor-titulo').textContent = 'Mira moviendo el teléfono';
+    $('#sensor-texto').innerHTML =
+      'Gira el aparato y la vista gira contigo, como si estuvieras dentro del espacio.';
+    $('#btn-activar').textContent = 'Activar';
+    $('#btn-ahora-no').textContent = 'Ahora no';
+  }
+  dialogo.hidden = false;
+}
+
 function encenderSensorSolo() {
   if (sensorActivo || sensorPedido) return;
   const DOE = window.DeviceOrientationEvent;
@@ -737,20 +781,23 @@ function encenderSensorSolo() {
   // manera de que salga solo al cargar. Lo que sí se puede es ponerlo al
   // frente desde el primer segundo, con la explicación a la vista, en vez de
   // esconderlo detrás del primer toque —donde nadie entiende qué le preguntan.
-  const dialogo = $('#pedir-sensor');
-  dialogo.hidden = false;
-
-  $('#btn-activar').addEventListener('click', async () => {
-    dialogo.hidden = true;
-    sensorPedido = true;
-    await alternarSensor();
-  });
-  $('#btn-ahora-no').addEventListener('click', () => {
-    dialogo.hidden = true;
-    sensorPedido = true;               // no insistir: fue una decisión
-    pista('Puedes activarlo luego con el botón del teléfono', 4000);
-  });
+  mostrarDialogoSensor();
 }
+
+$('#btn-activar').addEventListener('click', async () => {
+  if (sensorDenegado) { location.reload(); return; }
+  $('#pedir-sensor').hidden = true;
+  sensorPedido = true;
+  await alternarSensor();
+  if (sensorDenegado) mostrarDialogoSensor();   // se equivocó: se le explica
+});
+
+$('#btn-ahora-no').addEventListener('click', () => {
+  $('#pedir-sensor').hidden = true;
+  sensorPedido = true;                 // no insistir: fue una decisión
+  pista('Puedes activarlo cuando quieras con el botón del teléfono', 4500);
+});
+
 
 
 /* --------------------------------------------------- corte del techo ---- */
