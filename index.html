@@ -875,16 +875,19 @@ lienzo.addEventListener('pointermove', (e) => {
   // Con el sensor encendido, arrastrar de lado reorienta el norte en vez de
   // pelear contra el giroscopio.
   if (sensorActivo) {
-    offsetGiro += (e.clientX - ultimo.x) * 0.0032;
+    offsetGiro += (esTactil ? 1 : -1) * (e.clientX - ultimo.x) * 0.0032;
     ultimo = { x: e.clientX, y: e.clientY };
     return;
   }
-  // Se arrastra la escena, no la cabeza: llevar el dedo a la derecha mueve lo
-  // que se ve hacia la derecha, como al empujar una foto. Al revés se siente
-  // invertido.
+  // Cada entrada espera lo contrario de la otra. Con el dedo uno arrastra la
+  // escena: llevarlo a la derecha mueve lo que se ve hacia la derecha, como al
+  // empujar una foto. Con el ratón uno mueve la cabeza: llevarlo a la derecha
+  // gira la vista hacia la derecha. Usar el mismo signo en ambos deja a uno de
+  // los dos sintiéndose al revés.
+  const signo = esTactil ? 1 : -1;
   giro.setFromQuaternion(camara.quaternion);
-  giro.y += (e.clientX - ultimo.x) * 0.0032;
-  giro.x += (e.clientY - ultimo.y) * 0.0032;
+  giro.y += signo * (e.clientX - ultimo.x) * 0.0032;
+  giro.x += signo * (e.clientY - ultimo.y) * 0.0032;
   giro.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, giro.x));
   camara.quaternion.setFromEuler(giro);
   ultimo = { x: e.clientX, y: e.clientY };
