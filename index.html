@@ -279,6 +279,28 @@ body.con-lista .pista {
   body.con-lista #corte { bottom: calc(var(--alto-lista, 0px) + 12px); }
 }
 
+/* ------------------------------------------------ señal de agarre -------- */
+
+/* La mano abierta invita a arrastrar; la cerrada confirma que ya se agarró.
+   Es el mismo lenguaje de Street View. */
+#lienzo { cursor: grab; }
+#lienzo.agarrando { cursor: grabbing; }
+
+/* En el teléfono no hay cursor que cambiar, así que la confirmación es un aro
+   que aparece bajo el dedo mientras se arrastra. */
+#agarre {
+  position: fixed; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  border-radius: 50%; pointer-events: none; z-index: 6;
+  border: 2px solid var(--acento);
+  background: color-mix(in srgb, var(--acento) 18%, transparent);
+  animation: agarrar .22s ease-out;
+}
+@keyframes agarrar {
+  from { transform: scale(.55); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { #agarre { animation: none; } }
+
 </style>
 <script type="importmap">
 { "imports": {
@@ -291,6 +313,7 @@ body.con-lista .pista {
 
 <canvas id="lienzo"></canvas>
 <div id="capa-puntos"></div>
+<div id="agarre" hidden></div>
 
 <header class="barra">
   <div class="identidad">
@@ -608,6 +631,7 @@ function cargarPanorama(entrada, fuente) {
     $('#btn-sensor').hidden = !esTactil;
     ayudaMover();
     construirPuntos();
+    lienzo.style.cursor = 'grab';
     cargando(false);
     pista(`${textura.image.width} × ${textura.image.height} px`, 4000);
   }, undefined, (error) => {
@@ -685,6 +709,7 @@ function entrarAlEspacio() {
     cuaternion: camara.quaternion.clone(),
   };
   $('#btn-modo').textContent = 'Ver desde afuera';
+  lienzo.style.cursor = 'grab';
   $('#btn-sensor').hidden = !esTactil;
   ayudaMover();
   pista(esTactil ? 'Usa las flechas para caminar y arrastra para mirar'
@@ -1072,9 +1097,26 @@ function avanzar(metros) {
   camara.position.copy(destino);
 }
 
+/** Señal de que la escena quedó agarrada: el cursor se cierra y, en el
+ *  teléfono, aparece un aro bajo el dedo. Sin eso, el primer arrastre se
+ *  siente como si la pantalla no respondiera. */
+function marcarAgarre(activo, x, y) {
+  lienzo.classList.toggle('agarrando', activo);
+  // OrbitControls escribe 'cursor: auto' como estilo en línea sobre el canvas,
+  // y eso le gana a cualquier regla del CSS: hay que responderle por la misma
+  // vía.
+  lienzo.style.cursor = activo ? 'grabbing' : 'grab';
+  const aro = $('#agarre');
+  if (!activo) { aro.hidden = true; return; }
+  aro.style.left = x + 'px';
+  aro.style.top = y + 'px';
+  aro.hidden = false;
+}
+
 lienzo.addEventListener('pointerdown', (e) => {
   arrastro = 0;
   if (modo !== 'persona') return;
+  marcarAgarre(true, e.clientX, e.clientY);
   dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (dedos.size === 2) {
     // empieza un pellizco: se deja de mirar y se empieza a avanzar
@@ -1110,21 +1152,19 @@ lienzo.addEventListener('pointermove', (e) => {
   }
 
   if (!arrastrando) return;
+  marcarAgarre(true, e.clientX, e.clientY);
   // Con el sensor encendido, arrastrar de lado reorienta el norte en vez de
   // pelear contra el giroscopio.
   if (sensorActivo) {
-    offsetGiro += ((actual && actual.tipo === 'panorama') || esTactil ? 1 : -1)
-                  * (e.clientX - ultimo.x) * 0.0032;
+    offsetGiro += (e.clientX - ultimo.x) * 0.0032;
     ultimo = { x: e.clientX, y: e.clientY };
     return;
   }
-  // El sentido natural depende de qué se está mirando y con qué.
-  //   · Una foto 360 se empuja, como en un visor de panoramas: llevar el dedo
-  //     o el cursor a la derecha mueve la imagen a la derecha.
-  //   · Dentro de un recinto con geometría, el ratón mueve la cabeza —a la
-  //     derecha se mira a la derecha—, mientras que el dedo sigue empujando.
-  const empujar = (actual && actual.tipo === 'panorama') || esTactil;
-  const signo = empujar ? 1 : -1;
+  // Como en Street View: se agarra la imagen y se arrastra. El cursor o el
+  // dedo a la derecha llevan la escena a la derecha —y la mirada, en
+  // consecuencia, hacia la izquierda—. Vale igual para el ratón y para el
+  // dedo, y para las fotos 360 y los recintos: una sola convención.
+  const signo = 1;
   giro.setFromQuaternion(camara.quaternion);
   giro.y += signo * (e.clientX - ultimo.x) * 0.0032;
   giro.x += signo * (e.clientY - ultimo.y) * 0.0032;
@@ -1137,7 +1177,7 @@ lienzo.addEventListener('pointermove', (e) => {
   lienzo.addEventListener(ev, (e) => {
     dedos.delete(e.pointerId);
     if (dedos.size < 2) separacionPrevia = 0;
-    if (dedos.size === 0) arrastrando = false;
+    if (dedos.size === 0) { arrastrando = false; marcarAgarre(false); }
   }));
 
 addEventListener('keydown', (e) => {
